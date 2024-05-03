@@ -3,6 +3,10 @@ local ns_id = vim.api.nvim_create_namespace 'align'
 
 local M = {}
 
+local function clamp(x, a, b)
+	return math.max(a, math.min(x, b))
+end
+
 local function find_indices_of_alignments(line, alignments)
 	local indices = {}
 	for _, alignment in ipairs(alignments) do
@@ -178,18 +182,13 @@ local function align(buf, state)
 	align_sections(lines, min_i, max_i)
 	apply_alignment(buf, state, lines, min_i, max_i)
 end
-local function normalize_line_nr(nr, len)
-	if nr <= 0 then nr = len + nr end
-	if nr <= 0 or nr > len then error 'Invalid line number' end
-	return nr
-end
 
 function M.trigger(buf, start, stop, force)
 	local len = vim.api.nvim_buf_line_count(buf)
 	local state = vim.b[buf].align_state or { start = math.huge, stop = 0, len = len }
 	local removed = math.max(0, state.len - len)
-	state.start = math.min(normalize_line_nr(start, len), state.start)
-	state.stop = math.max(normalize_line_nr(stop, len), state.stop - removed)
+	state.start = clamp(start, 0, state.start)
+	state.stop = clamp(stop, state.stop - removed, len)
 	state.len = len
 
 	if force == true
@@ -222,7 +221,7 @@ M.setup = function(opts)
 		}
 	)
 	for buf in ipairs(vim.api.nvim_list_bufs()) do
-		if vim.api.nvim_buf_is_loaded(buf) then M.trigger(buf, 1, 0, true) end
+		if vim.api.nvim_buf_is_loaded(buf) then M.trigger(buf, 1, math.huge, true) end
 	end
 end
 
