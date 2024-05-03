@@ -155,6 +155,7 @@ end
 local function align(buf, state)
 	local lines = vim.api.nvim_buf_get_lines(
 		buf, state.start - 1, state.stop, false)
+	if vim.tbl_isempty(lines) then return end
 
 	---@cast lines {i: number, val: string}[][]
 	for i, raw_line in ipairs(lines) do
@@ -205,7 +206,7 @@ M.opts = {
 	-- `table` of `modes` (output of `nvim_get_mode().mode`).
 	-- Leave empty if you want to always update the alignments.
 	update_in_modes = {}, -- `array` of mode short-names (`n`, `i`, ...)
-	align = { ' = ', ', ', '{', '}', '%[', '%]', '%(', '%)' }, -- `table` of patterns to align.
+	align = { ' = ', '\t' }, -- `table` of patterns to align.
 }
 
 M.setup = function(opts)
