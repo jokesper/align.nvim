@@ -265,6 +265,8 @@ local default_opts = {
 }
 
 function M.setup(opts)
+	if not vim.fn.has 'nvim-0.10' then error 'Requires nvim version >= 0.10.x' end
+
 	local augroup = vim.api.nvim_create_augroup('align', {})
 	local ns_id = vim.api.nvim_create_namespace 'align'
 

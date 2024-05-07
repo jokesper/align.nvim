@@ -1,6 +1,9 @@
 # align.nvim
 A simple plugin to allow alignment over multiple lines.
 
+## Requirements
+- nvim >= 0.10.x
+
 ## Installation
 
 ### [lazy.nvim](https://github.com/wbthomason/packer.nvim)
