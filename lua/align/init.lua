@@ -1,6 +1,3 @@
-local augroup = vim.api.nvim_create_augroup('align', {})
-local ns_id = vim.api.nvim_create_namespace 'align'
-
 local M = {}
 
 local function clamp(x, a, b)
@@ -67,31 +64,64 @@ local function lcs(x, y, key)
 	return seq
 end
 
----@param lines {[number]: {i: number, val: string, aligned: {i: number, deps: {[table]: boolean}}?}, progress: number?}[]
-local function figure_out_sections(lines, min_i, max_i)
-	local function normalize_line(i)
-		lines[i] = vim.tbl_filter(function(alignment) return alignment.aligned ~= nil end, lines[i])
-		for j = 2, #lines[i] do lines[i][j].aligned.deps[lines[i][j - 1].aligned] = true end
-		lines[i].progress = 1
+local function convert_indicies_to_columns_of_alignments(data)
+	local converted = {}
+	local ei = 1 -- index for `extmarks`
+	for i = data.min_i, data.max_i do
+		local line_nr = data.state.start - 2 + i
+		local shifted = 0
+		while data.extmarks[ei] ~= nil
+			and data.extmarks[ei][2] < line_nr do
+			ei = ei + 1
+		end
+
+		converted[i] = {}
+		for j, alignment in ipairs(data.lines[i]) do
+			while data.extmarks[ei] ~= nil
+				and data.extmarks[ei][2] == line_nr
+				and data.extmarks[ei][3] < alignment.i do
+				for _, text in ipairs(data.extmarks[ei][4].virt_text) do
+					-- NOTE: text should only contain spaces
+					shifted = shifted + #text[1]
+				end
+				ei = ei + 1
+			end
+			local col = vim.fn.virtcol { data.state.start - 1 + i, alignment.i }
+			col = col - shifted
+			converted[i][j] = { col = col, i = alignment.i, val = alignment.val }
+		end
 	end
-	for i = min_i, max_i - 1 do
-		local current, next = lines[i], lines[i + 1]
+	data.lines = converted
+end
+---@param data {lines: {[number]: {col: number, val: string, aligned: {col: number, deps: {[table]: boolean}}?}, progress: number?}[], min_i: number, max_i: number}
+local function figure_out_sections(data)
+	local function normalize_line(i)
+		data.lines[i] = vim.tbl_filter(function(alignment) return alignment.aligned ~= nil end, data.lines[i])
+		for j = 2, #data.lines[i] do data.lines[i][j].aligned.deps[data.lines[i][j - 1].aligned] = true end
+		data.lines[i].progress = 1
+	end
+	for i = data.min_i, data.max_i - 1 do
+		local current, next = data.lines[i], data.lines[i + 1]
 		for _, alignment in ipairs(lcs(current, next, 'val')) do
 			local j, k = alignment[1], alignment[2]
-			local aligned = current[j].aligned or { i = 0, deps = {} }
+			local aligned = current[j].aligned or { col = 0, deps = {} }
 			current[j].aligned = aligned
 			next[k].aligned = aligned
 		end
 		normalize_line(i)
 	end
-	normalize_line(max_i)
+	normalize_line(data.max_i)
 end
----@param lines {[number]: {i: number, val: string, aligned: {i: number, deps: {[table]: boolean}}}, progress: number}[]
-local function align_sections(lines, min_i, max_i)
+---@param data {lines: {[number]: {col: number, val: string, aligned: {col: number, deps: {[table]: boolean}}}, progress: number}[]}
+local function align_sections(data)
 	-- FIXME:
-	-- 1. align respecting tabulators ()
-	-- 2. align respecting other virtual text
-	lines = vim.tbl_filter(function(line) return line[line.progress] ~= nil end, lines)
+	-- - align respecting wrapped text
+	-- Possible solutions:
+	-- - `vim.fn.screenpos`
+	--   - Row has to be on screen.
+
+	-- NOTE: copy of lines is intended and required
+	local lines = vim.tbl_filter(function(line) return line[line.progress] ~= nil end, data.lines)
 	local resolved = {}
 	while not vim.tbl_isempty(lines) do
 		-- NOTE: assumes that if every dependency is resolved it is the next alignment (line.progress)
@@ -102,8 +132,8 @@ local function align_sections(lines, min_i, max_i)
 				if resolved[dep] ~= true then goto continue end
 			end
 			local last = line[line.progress - 1]
-			local shift = last ~= nil and (last.aligned.i - last.i) or 0
-			current.aligned.i = math.max(current.aligned.i, current.i + shift)
+			local shift = last ~= nil and (last.aligned.col - last.col) or 0
+			current.aligned.col = math.max(current.aligned.col, current.col + shift)
 			line.progress = line.progress + 1
 			resolving[current.aligned] = true
 			if line.progress > #line then lines[i] = nil end
@@ -112,46 +142,63 @@ local function align_sections(lines, min_i, max_i)
 		resolved = vim.tbl_extend('keep', resolved, resolving)
 	end
 end
-local function apply_alignment(buf, state, lines, min_i, max_i)
-	local extmarks = vim.api.nvim_buf_get_extmarks(buf, ns_id,
-		{ state.start - 2 + min_i, 0 },
-		{ state.start - 2 + max_i, -1 },
-		{ type = 'virt_text' })
+local function apply_alignment(data)
 	local ei = 1 -- index for `extmarks`
-	for i = min_i, max_i do
-		local line_nr = state.start - 2 + i -- 0-based
+	for i = data.min_i, data.max_i do
+		local line_nr = data.state.start - 2 + i -- 0-based
 		local shift = 0
-		for _, alignment in ipairs(lines[i]) do
+		while data.extmarks[ei] ~= nil
+			and data.extmarks[ei][2] < line_nr do
+			vim.api.nvim_buf_del_extmark(data.buf, data.ns_id, data.extmarks[ei][1])
+			ei = ei + 1
+		end
+		for _, alignment in ipairs(data.lines[i]) do
 			local col = alignment.i - 1
-			local delta = alignment.aligned.i - alignment.i - shift
+			local delta = alignment.aligned.col - alignment.col - shift
 			shift = shift + delta
-			while extmarks[ei] ~= nil
-				and (extmarks[ei][2] < line_nr
-					or extmarks[ei][3] < col) do
-				vim.api.nvim_buf_del_extmark(buf, ns_id, extmarks[ei][1])
+			while data.extmarks[ei] ~= nil
+				and data.extmarks[ei][2] == line_nr
+				and data.extmarks[ei][3] < col do
+				vim.api.nvim_buf_del_extmark(data.buf, data.ns_id, data.extmarks[ei][1])
 				ei = ei + 1
 			end
 			local new_id = nil
-			if extmarks[ei] ~= nil
-				and extmarks[ei][2] == line_nr
-				and extmarks[ei][3] == col
+			if data.extmarks[ei] ~= nil
+				and data.extmarks[ei][2] == line_nr
+				and data.extmarks[ei][3] == col
 			then
-				new_id = extmarks[ei][1]
+				new_id = data.extmarks[ei][1]
 				ei = ei + 1
 			end
-			vim.api.nvim_buf_set_extmark(buf, ns_id, line_nr, col, {
+			vim.api.nvim_buf_set_extmark(data.buf, data.ns_id, line_nr, col, {
 				id = new_id,
 				virt_text = { { (' '):rep(delta), M.opts.highlight } },
 				virt_text_pos = 'inline',
 				right_gravity = true,
+				scoped = true,
 			})
 		end
 	end
-	while extmarks[ei] ~= nil do
-		vim.api.nvim_buf_del_extmark(buf, ns_id, extmarks[ei][1])
+	while data.extmarks[ei] ~= nil do
+		vim.api.nvim_buf_del_extmark(data.buf, data.ns_id, data.extmarks[ei][1])
 		ei = ei + 1
 	end
 end
+local function align_win(data)
+	-- FIXME: when one window is heavily wrapped with long alignments strange things happen
+	-- TODO: cleanup unsued namespaces
+	data.ns_id = vim.api.nvim_create_namespace(('align-win-%d'):format(data.window))
+	vim.api.nvim_win_add_ns(data.window, data.ns_id)
+	data.extmarks = vim.api.nvim_buf_get_extmarks(data.buf, data.ns_id,
+		{ data.state.start - 2 + data.min_i, 0 },
+		{ data.state.start - 2 + data.max_i, -1 },
+		{ type = 'virt_text', details = true })
+	convert_indicies_to_columns_of_alignments(data)
+	figure_out_sections(data)
+	align_sections(data)
+	apply_alignment(data)
+end
+
 local function align(buf, state)
 	local lines = vim.api.nvim_buf_get_lines(
 		buf, state.start - 1, state.stop, false)
@@ -179,17 +226,25 @@ local function align(buf, state)
 			buf, line_nr, line_nr + 1, true)[1], M.opts.align)
 	end
 
-	figure_out_sections(lines, min_i, max_i)
-	align_sections(lines, min_i, max_i)
-	apply_alignment(buf, state, lines, min_i, max_i)
+	for _, window in ipairs(vim.fn.win_findbuf(buf)) do
+		align_win {
+			buf = buf,
+			window = window,
+			lines = lines,
+			state = state,
+			min_i = min_i,
+			max_i = max_i,
+		}
+	end
 end
 
 function M.trigger(buf, start, stop, force)
 	local len = vim.api.nvim_buf_line_count(buf)
 	local state = vim.b[buf].align_state or { start = math.huge, stop = 0, len = len }
 	local removed = math.max(0, state.len - len)
-	state.start = clamp(start, 0, state.start)
-	state.stop = clamp(stop, state.stop - removed, len)
+	-- NOTE: align one extra line on both sides
+	state.start = clamp(start - 1, 1, state.start)
+	state.stop = clamp(stop + 1, state.stop - removed, len)
 	state.len = len
 
 	if force == true
@@ -202,23 +257,36 @@ function M.trigger(buf, start, stop, force)
 	end
 end
 
-M.opts = {
+local default_opts = {
 	-- `table` of `modes` (output of `nvim_get_mode().mode`).
 	-- Leave empty if you want to always update the alignments.
 	update_in_modes = {}, -- `array` of mode short-names (`n`, `i`, ...)
 	align = { ' = ', '\t' }, -- `table` of patterns to align.
 }
 
-M.setup = function(opts)
-	M.opts = vim.tbl_deep_extend('force', M.opts, opts or {})
+function M.setup(opts)
+	local augroup = vim.api.nvim_create_augroup('align', {})
+	local ns_id = vim.api.nvim_create_namespace 'align'
+
+	M.opts = vim.tbl_deep_extend('force', default_opts, opts or {})
 
 	vim.api.nvim_set_hl(ns_id, 'Alignment', { link = 'Conceal' })
 	vim.api.nvim_set_hl_ns(ns_id)
 	vim.api.nvim_create_autocmd(
-		{ 'BufRead', 'TextChanged', 'TextChangedI', 'TextChangedP', 'InsertLeave' }, {
+		{ 'BufRead', 'TextChanged', 'TextChangedI', 'TextChangedP', 'InsertLeave', 'BufWinEnter' }, {
 			group = augroup,
 			desc = 'Update text alignment',
 			callback = function(event) M.trigger(event.buf, vim.fn.getpos "'["[2], vim.fn.getpos "']"[2], false) end,
+		}
+	)
+	vim.api.nvim_create_autocmd(
+		{ 'WinClosed' }, {
+			group = augroup,
+			desc = 'Delete unneeded alignment namespaces',
+			callback = function(event)
+				local win_ns_id = tonumber(event.match) or -1 -- NOTE: should never fail
+				vim.api.nvim_buf_clear_namespace(event.buf, win_ns_id or 0, 0, -1)
+			end,
 		}
 	)
 	for buf in ipairs(vim.api.nvim_list_bufs()) do
