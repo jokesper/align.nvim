@@ -187,8 +187,10 @@ end
 local function align_win(data)
 	-- FIXME: when one window is heavily wrapped with long alignments strange things happen
 	-- TODO: cleanup unsued namespaces
+	local win_ns = vim.api.nvim_win_add_ns or vim.api.nvim__win_add_ns
+	if win_ns == nil then return end -- NOTE: API change
 	data.ns_id = vim.api.nvim_create_namespace(('align-win-%d'):format(data.window))
-	vim.api.nvim_win_add_ns(data.window, data.ns_id)
+	win_ns(data.window, data.ns_id)
 	data.extmarks = vim.api.nvim_buf_get_extmarks(data.buf, data.ns_id,
 		{ data.state.start - 2 + data.min_i, 0 },
 		{ data.state.start - 2 + data.max_i, -1 },
