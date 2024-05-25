@@ -8,7 +8,7 @@ local function find_indices_of_alignments(line, alignments)
 	local indices = {}
 	for _, alignment in ipairs(alignments) do
 		local init = 1
-		while init < #line do
+		while init <= #line do
 			local start_i, end_i = line:find(alignment, init)
 			if start_i == nil then break end
 			table.insert(indices, { i = start_i, val = alignment })
