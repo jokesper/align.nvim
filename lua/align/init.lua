@@ -98,7 +98,7 @@ function M.setup(opts)
 
 	M.opts = vim.tbl_deep_extend('force', default_opts, opts or {})
 
-	vim.api.nvim_set_hl(ns_id, 'Alignment', { link = 'Conceal' })
+	vim.api.nvim_set_hl(ns_id, 'Alignment', { link = 'Comment' })
 	vim.api.nvim_set_hl_ns(ns_id)
 	vim.api.nvim_create_autocmd(
 		{ 'BufRead', 'TextChanged', 'TextChangedI', 'TextChangedP', 'InsertLeave', 'BufWinEnter' }, {
