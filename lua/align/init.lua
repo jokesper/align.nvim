@@ -6,21 +6,62 @@ local function clamp(x, a, b)
 	return math.max(a, math.min(x, b))
 end
 
-local function find_indices_of_alignments(line, alignments)
-	local indices = {}
-	for _, alignment in ipairs(alignments) do
-		local init = 1
-		while init <= #line do
-			local start_i, end_i = line:find(alignment, init)
-			if start_i == nil then break end
-			table.insert(indices, { i = start_i, val = alignment })
-			init = end_i + 1
+local function _find_indices_of_alignments(line, alignments, indices, opts)
+	for key, alignment in pairs(alignments) do
+		if type(key) ~= 'number' then
+			-- NOTE: non number keys are ignored.
+		elseif alignment == false then
+			-- NOTE: when default alignments are (partially) disabled.
+		elseif type(alignment) == 'string' then
+			local init = 1
+			while init <= #line do
+				local start_i, end_i = line:find(alignment, init)
+				if start_i == nil then break end
+				local align_i
+				if opts.align == 'left' or opts.align == nil then
+					align_i = start_i
+				elseif opts.align == 'right' then
+					align_i = end_i
+				elseif opts.align == 'center' then
+					align_i = math.floor((start_i + end_i) / 2)
+				else
+					error(('Invalid option for pattern option `align`: `%s`'):format(opts.align))
+				end
+				table.insert(indices, {
+					col = start_i,
+					align = align_i,
+					key = tostring(alignment),
+				})
+				init = end_i + 1
+			end
+		elseif type(alignment) == 'table' then
+			_find_indices_of_alignments(line, alignment, indices, {
+				align = alignment.align or opts.align,
+			})
 		end
 	end
+end
+local function find_indices_of_alignments(line, buf, alignments)
+	local indices = {}
+	if type(line) == 'number' then
+		line = vim.api.nvim_buf_get_lines(buf, line, line + 1, true)[1]
+	end
+	_find_indices_of_alignments(line, alignments, indices, {})
+	-- NOTE:
+	-- `or` only returns the second when the first is either `nil` or `false` (no default).
+	-- I.e. `or` is not used as a null coalescing operator but as the lua `or` operator.
+	local ft_alignments = alignments[vim.bo.filetype or ''] or alignments['*']
+	if ft_alignments ~= nil then _find_indices_of_alignments(line, ft_alignments, indices, alignments) end
+
 	-- NOTE: stable since equality is only signaled for value equality.
 	table.sort(indices, function(a, b)
-		if a.i == b.i then return a.val < b.val end
-		return a.i < b.i
+		if a.col ~= b.col then
+			return a.col < b.col
+		elseif a.align ~= b.align then
+			return a.align < b.align
+		else
+			return a.key < b.key
+		end
 	end)
 	return indices
 end
@@ -32,7 +73,7 @@ local function align(buf, state)
 
 	---@cast lines {i: number, val: string}[][]
 	for i, raw_line in ipairs(lines) do
-		lines[i] = find_indices_of_alignments(raw_line, M.opts.align)
+		lines[i] = find_indices_of_alignments(raw_line, buf, M.opts.align)
 	end
 
 	local min_i = 1
@@ -40,16 +81,14 @@ local function align(buf, state)
 		local line_nr = state.start - 3 + min_i
 		if line_nr < 0 then break end
 		min_i = min_i - 1
-		lines[min_i] = find_indices_of_alignments(vim.api.nvim_buf_get_lines(
-			buf, line_nr, line_nr + 1, true)[1], M.opts.align)
+		lines[min_i] = find_indices_of_alignments(line_nr, buf, M.opts.align)
 	end
 	local max_i = state.stop - state.start + 1
 	while not vim.tbl_isempty(lines[max_i]) do
 		local line_nr = state.start - 1 + max_i
 		if line_nr >= state.len then break end
 		max_i = max_i + 1
-		lines[max_i] = find_indices_of_alignments(vim.api.nvim_buf_get_lines(
-			buf, line_nr, line_nr + 1, true)[1], M.opts.align)
+		lines[max_i] = find_indices_of_alignments(line_nr, buf, M.opts.align)
 	end
 
 	for _, window in ipairs(vim.fn.win_findbuf(buf)) do
@@ -87,7 +126,35 @@ local default_opts = {
 	-- `array` of `modes` (output of `nvim_get_mode().mode` (`n`, `i`, ...)).
 	-- Leave empty if you want to always update the alignments.
 	update_in_modes = {},
-	align = { ' = ', '\t' }, -- `table` of patterns to align.
+	-- `table` of patterns to align.
+	-- - `number` (positional) arguments are global alignments.
+	-- - `string` arguments are filetype specific.
+	--   The key has to be the same as the filetype (value of `vim.opt.filetype`)
+	--   or `*` as a fallback.
+	--
+	-- A pattern can be either:
+	-- 1. `false` to disable defaults (usually at index `0`).
+	-- 2. A `string` representing a lua pattern which gets leftaligned.
+	-- 4. A `table` representing multiple patterns with optional properties.
+	-- 	  The properties can be:
+	-- 	  - `align` which specifies how to align the pattern.
+	-- 	    One of `left`, `right` or `center`.
+	align = {
+		[0] = {
+			'\t',
+			{ '%s[+-]?[%d.,]+', align = 'right' },
+		},
+		['*'] = {
+			[0] = {
+				' = ',
+			},
+		},
+		csv = {
+			[0] = {
+				',',
+			},
+		},
+	},
 }
 
 function M.setup(opts)

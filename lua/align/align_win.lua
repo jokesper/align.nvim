@@ -13,16 +13,20 @@ local function convert_indicies_to_columns_of_alignments(data)
 		for j, alignment in ipairs(data.lines[i]) do
 			while data.extmarks[ei] ~= nil
 				and data.extmarks[ei][2] == line_nr
-				and data.extmarks[ei][3] < alignment.i do
+				and data.extmarks[ei][3] < alignment.align do
 				for _, text in ipairs(data.extmarks[ei][4].virt_text) do
 					-- NOTE: text should only contain spaces
 					shifted = shifted + #text[1]
 				end
 				ei = ei + 1
 			end
-			local col = vim.fn.virtcol { data.state.start - 1 + i, alignment.i }
-			col = col - shifted
-			converted[i][j] = { col = col, i = alignment.i, val = alignment.val }
+			local align = vim.fn.virtcol { data.state.start - 1 + i, alignment.align }
+			align = align - shifted
+			converted[i][j] = {
+				col = alignment.col,
+				align = align,
+				key = alignment.key,
+			}
 		end
 	end
 	data.lines = converted
@@ -69,7 +73,7 @@ local function lcs(x, y, key)
 	return seq
 end
 
----@param data {lines: {[number]: {col: number, val: string, aligned: {col: number, deps: {[table]: boolean}}?}, progress: number?}[], min_i: number, max_i: number}
+---@param data {lines: {[number]: {col: number, align: number, key: string, aligned: {align: number, deps: {[table]: boolean}}?}, progress: number?}[], min_i: number, max_i: number}
 local function figure_out_sections(data)
 	local function normalize_line(i)
 		data.lines[i] = vim.tbl_filter(function(alignment) return alignment.aligned ~= nil end, data.lines[i])
@@ -78,9 +82,9 @@ local function figure_out_sections(data)
 	end
 	for i = data.min_i, data.max_i - 1 do
 		local current, next = data.lines[i], data.lines[i + 1]
-		for _, alignment in ipairs(lcs(current, next, 'val')) do
+		for _, alignment in ipairs(lcs(current, next, 'key')) do
 			local j, k = alignment[1], alignment[2]
-			local aligned = current[j].aligned or { col = 0, deps = {} }
+			local aligned = current[j].aligned or { align = 0, deps = {} }
 			current[j].aligned = aligned
 			next[k].aligned = aligned
 		end
@@ -89,7 +93,7 @@ local function figure_out_sections(data)
 	normalize_line(data.max_i)
 end
 
----@param data {lines: {[number]: {col: number, val: string, aligned: {col: number, deps: {[table]: boolean}}}, progress: number}[]}
+---@param data {lines: {[number]: {col: number, align: number, key: string, aligned: {align: number, deps: {[table]: boolean}}}, progress: number}[]}
 local function align_sections(data)
 	-- FIXME:
 	-- - align respecting wrapped text
@@ -109,8 +113,8 @@ local function align_sections(data)
 				if resolved[dep] ~= true then goto continue end
 			end
 			local last = line[line.progress - 1]
-			local shift = last ~= nil and (last.aligned.col - last.col) or 0
-			current.aligned.col = math.max(current.aligned.col, current.col + shift)
+			local shift = last ~= nil and (last.aligned.align - last.align) or 0
+			current.aligned.align = math.max(current.aligned.align, current.align + shift)
 			line.progress = line.progress + 1
 			resolving[current.aligned] = true
 			if line.progress > #line then lines[i] = nil end
@@ -131,8 +135,8 @@ local function apply_alignment(data)
 			ei = ei + 1
 		end
 		for _, alignment in ipairs(data.lines[i]) do
-			local col = alignment.i - 1
-			local delta = alignment.aligned.col - alignment.col - shift
+			local col = alignment.col - 1
+			local delta = alignment.aligned.align - alignment.align - shift
 			shift = shift + delta
 			while data.extmarks[ei] ~= nil
 				and data.extmarks[ei][2] == line_nr
@@ -175,6 +179,9 @@ return function(data)
 		{ data.state.start - 2 + data.max_i, -1 },
 		{ type = 'virt_text', details = true })
 	convert_indicies_to_columns_of_alignments(data)
+	-- TODO:
+	-- move prior te per window alignment, for earlier cut-off
+	-- (we can cut of when there is nothing in common instead of when there is nothing).
 	figure_out_sections(data)
 	align_sections(data)
 	apply_alignment(data)

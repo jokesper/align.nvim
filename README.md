@@ -24,9 +24,37 @@ see `:help lua-heredoc`.
 ### Default configuration
 ```lua
 require 'align'.setup {
-	-- `table` of `modes` (output of `nvim_get_mode().mode`).
+	-- `array` of `modes` (output of `nvim_get_mode().mode` (`n`, `i`, ...)).
 	-- Leave empty if you want to always update the alignments.
-	update_in_modes = {}, -- `array` of mode short-names (`n`, `i`, ...)
-	align = { ' = ', '\t' }, -- `table` of patterns to align.
+	update_in_modes = {},
+	-- `table` of patterns to align.
+	-- - `number` (positional) arguments are global alignments.
+	-- - `string` arguments are filetype specific.
+	--   The key has to be the same as the filetype (value of `vim.opt.filetype`)
+	--   or `*` as a fallback.
+	--
+	-- A pattern can be either:
+	-- 1. `false` to disable defaults (usually at index `0`).
+	-- 2. A `string` representing a lua pattern which gets leftaligned.
+	-- 4. A `table` representing multiple patterns with optional properties.
+	-- 	  The properties can be:
+	-- 	  - `align` which specifies how to align the pattern.
+	-- 	    One of `left`, `right` or `center`.
+	align = {
+		[0] = {
+			'\t',
+			{ '%s[+-]?[%d.,]+', align = 'right' },
+		},
+		['*'] = {
+			[0] = {
+				' = ',
+			},
+		},
+		csv = {
+			[0] = {
+				',',
+			},
+		},
+	},
 }
 ```
