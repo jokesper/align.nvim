@@ -142,7 +142,7 @@ local default_opts = {
 	align = {
 		[0] = {
 			'\t',
-			{ '%s[+-]?[%d.,]+', align = 'right' },
+			{ '%s[+-]?[%d.,]*%d', align = 'right' },
 		},
 		['*'] = {
 			[0] = {
