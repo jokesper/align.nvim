@@ -142,16 +142,21 @@ local default_opts = {
 	align = {
 		[0] = {
 			'\t',
-			{ '%s[+-]?[%d.,]*%d', align = 'right' },
 		},
 		['*'] = {
 			[0] = {
 				' = ',
+				{ '%s[+-]?[%d.,]*%d', align = 'right' },
 			},
 		},
 		csv = {
 			[0] = {
 				',',
+			},
+		},
+		yaml = {
+			[0] = {
+				': ',
 			},
 		},
 	},
@@ -168,7 +173,7 @@ function M.setup(opts)
 	vim.api.nvim_set_hl(ns_id, 'Alignment', { link = 'Comment' })
 	vim.api.nvim_set_hl_ns(ns_id)
 	vim.api.nvim_create_autocmd(
-		{ 'BufRead', 'TextChanged', 'TextChangedI', 'TextChangedP', 'InsertLeave', 'BufWinEnter' }, {
+		{ 'TextChanged', 'TextChangedI', 'TextChangedP', 'InsertLeave', 'BufWinEnter' }, {
 			group = augroup,
 			desc = 'Update text alignment',
 			callback = function(event) M.trigger(event.buf, vim.fn.getpos "'["[2], vim.fn.getpos "']"[2], false) end,
