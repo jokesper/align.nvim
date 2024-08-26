@@ -2,6 +2,18 @@ local M = {}
 
 local align_win = require 'align.align_win'
 
+-- TODO:
+-- - align strings of different length (choose)
+--   - list of pairs of where to place the alignment and what to align
+-- - fix alignment of tabs to be like elastic tabstops (`set tabstop=1 vartabstop=`?)
+-- - custom function for alignment detection
+--   - post processing
+--   - entire line
+--   - entire buffer
+-- - embed alignments
+--   - unembed alignments
+--   - reembed alignments
+
 local function clamp(x, a, b)
 	return math.max(a, math.min(x, b))
 end
@@ -9,7 +21,10 @@ end
 local function _find_indices_of_alignments(line, alignments, indices, opts)
 	for key, alignment in pairs(alignments) do
 		if type(key) ~= 'number' then
-			-- NOTE: non number keys are ignored.
+			-- NOTE:
+			-- non number keys are ignored.
+			-- why?, wouldn't it be awesome.
+			-- filetypes have to be handled extra
 		elseif alignment == false then
 			-- NOTE: when default alignments are (partially) disabled.
 		elseif type(alignment) == 'string' then
@@ -135,6 +150,7 @@ local default_opts = {
 	-- A pattern can be either:
 	-- 1. `false` to disable defaults (usually at index `0`).
 	-- 2. A `string` representing a lua pattern which gets leftaligned.
+	-- 3. A `function` -- TODO: figure out
 	-- 4. A `table` representing multiple patterns with optional properties.
 	-- 	  The properties can be:
 	-- 	  - `align` which specifies how to align the pattern.
@@ -159,6 +175,16 @@ local default_opts = {
 				': ',
 			},
 		},
+		--[[
+		-- TODO: figure out functions
+		-- maybe:
+		function(line)
+			-- returning a table with the keys:
+			-- - `key` to specify how to compare (and sort)
+			-- - <positional>, which represents a tuple of where, and what (ints)
+			return {}
+		end,
+		--]]
 	},
 }
 
@@ -173,6 +199,7 @@ function M.setup(opts)
 	vim.api.nvim_set_hl(ns_id, 'Alignment', { link = 'Comment' })
 	vim.api.nvim_set_hl_ns(ns_id)
 	vim.api.nvim_create_autocmd(
+	-- FIXME: alignment not updated if virtual text is added or removed.
 		{ 'TextChanged', 'TextChangedI', 'TextChangedP', 'InsertLeave', 'BufWinEnter' }, {
 			group = augroup,
 			desc = 'Update text alignment',
