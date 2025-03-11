@@ -167,7 +167,7 @@ local default_opts = {
 		},
 		csv = {
 			[0] = {
-				',',
+				'"[,;\t]"',
 			},
 		},
 		yaml = {
