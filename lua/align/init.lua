@@ -119,6 +119,7 @@ local function align(buf, state)
 end
 
 function M.trigger(buf, start, stop, force)
+	if not M.opts.enabled then return end
 	local len = vim.api.nvim_buf_line_count(buf)
 	local state = vim.b[buf].align_state or { start = math.huge, stop = 0, len = len }
 	local removed = math.max(0, state.len - len)
@@ -216,9 +217,32 @@ function M.setup(opts)
 			end,
 		}
 	)
+	M.enable()
+
+	vim.api.nvim_create_user_command('AlignEnable', M.enable, {})
+	vim.api.nvim_create_user_command('AlignDisable', M.disable, {})
+	vim.api.nvim_create_user_command('AlignToggle', M.toggle, {})
+end
+
+function M.enable()
+	M.opts.enabled = true;
 	for buf in ipairs(vim.api.nvim_list_bufs()) do
 		if vim.api.nvim_buf_is_loaded(buf) then M.trigger(buf, 1, math.huge, true) end
 	end
+end
+function M.disable()
+	M.opts.enabled = false;
+	for buf in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_loaded(buf) then
+			for _, window in ipairs(vim.fn.win_findbuf(buf)) do
+				local win_ns_id = vim.api.nvim_create_namespace(('align-win-%d'):format(window))
+				vim.api.nvim_buf_clear_namespace(buf, win_ns_id or 0, 0, -1)
+			end
+		end
+	end
+end
+function M.toggle()
+	(M.opts.enabled and M.disable or M.enable)()
 end
 
 return M
