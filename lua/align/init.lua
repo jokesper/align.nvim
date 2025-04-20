@@ -232,10 +232,10 @@ function M.enable()
 end
 function M.disable()
 	M.opts.enabled = false;
-	for buf in ipairs(vim.api.nvim_list_bufs()) do
+	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 		if vim.api.nvim_buf_is_loaded(buf) then
-			for _, window in ipairs(vim.fn.win_findbuf(buf)) do
-				local win_ns_id = vim.api.nvim_create_namespace(('align-win-%d'):format(window))
+			for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+				local win_ns_id = vim.api.nvim_create_namespace(('align-win-%d'):format(win))
 				vim.api.nvim_buf_clear_namespace(buf, win_ns_id or 0, 0, -1)
 			end
 		end
